@@ -1,0 +1,267 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Main infrastructure stack for the AtenaDocs application. This template creates
+  the PDF storage bucket, Lambda function, API Gateway, and Amplify frontend.
+  It depends on a pre-existing S3 bucket for Lambda code artifacts,
+  which should be created by the 'bootstrap-template.yaml' stack.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: development
+    Description: The environment name to tag resources with (e.g., development, production).
+  ArtifactsBucketName:
+    Type: String
+    Description: >
+      (Required) The name of the S3 bucket containing the Lambda deployment package.
+      This bucket is created by the bootstrap-template.yaml stack.
+    MinLength: 3
+  LambdaCodeS3Key:
+    Type: String
+    Description: >
+      (Required) The S3 key (path/filename) of the zipped Lambda code within the ArtifactsBucket
+      (e.g., 'backend.zip').
+  GitHubRepoURL:
+    Type: String
+    Description: >
+      (Required) The full HTTPS URL of the GitHub repository (e.g., https://github.com/your-username/your-repo.git).
+      Important: Must be the HTTPS URL, not the SSH one.
+  GitHubPersonalAccessToken:
+    Type: String
+    NoEcho: true
+    Description: >
+      (Required) A GitHub Personal Access Token with 'repo' and 'admin:repo_hook' scopes.
+      Amplify uses this to connect to your repository for CI/CD.
+  MainBranchName:
+    Type: String
+    Default: main
+    Description: The name of the GitHub branch you want to build and deploy from (e.g., main, dev).
+  DomainName:
+    Type: String
+    Description: "Optional. The root domain name for your application (e.g., atenadocs.com). If you provide this, a custom domain will be configured."
+    Default: ""
+  SubDomainPrefix:
+    Type: String
+    Description: "The subdomain prefix for this environment (e.g., dev). Only used if DomainName is provided."
+    Default: "dev"
+
+Conditions:
+  CreateCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
+  IsProduction: !Equals [!Ref EnvironmentName, "production"]
+
+Resources:
+  # --- S3 Bucket for Storing PDF Files (User Uploads) ---
+  # This bucket stores the PDFs temporarily uploaded by users before they are merged.
+  PdfBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - POST # Allows the browser to upload files directly via pre-signed POST URLs.
+              - GET  # Allows the browser to download the final merged file via a pre-signed GET URL.
+            AllowedOrigins:
+              # Dynamically sets the allowed origin based on whether a custom domain is configured.
+              # This is a critical security best practice for production environments.
+              - !If [CreateCustomDomain, !Sub "https://${SubDomainPrefix}.${DomainName}", !Sub "https://${AmplifyApp.DefaultDomain}"]
+            MaxAge: 3600
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+
+  # --- IAM Role for Lambda Execution ---
+  # This role grants the Lambda function the necessary permissions to run.
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'atenadocs-lambda-role-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub 'atenadocs-lambda-policy-${EnvironmentName}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Permission to write logs to CloudWatch.
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+              # Permissions to read, write, and delete objects in the PDF S3 bucket.
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${PdfBucket.Arn}/*'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+
+  # --- Lambda Function for Merging PDFs ---
+  # The core backend logic of the application.
+  PdfMergeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'atenadocs-merge-function-${EnvironmentName}'
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucketName
+        S3Key: !Ref LambdaCodeS3Key
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref PdfBucket
+      Timeout: 30
+      MemorySize: 256
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+
+  # --- API Gateway (HTTP API) ---
+  # A lightweight, low-cost API endpoint for the Lambda function.
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub 'atenadocs-api-${EnvironmentName}'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        # Dynamically sets the allowed origin for security.
+        AllowOrigins:
+          - !If [CreateCustomDomain, !Sub "https://${SubDomainPrefix}.${DomainName}", !Sub "https://${AmplifyApp.DefaultDomain}"]
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+      Tags:
+        Environment: !Ref EnvironmentName
+        Project: AtenaDocs
+
+  # --- API Gateway Integration with Lambda ---
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt PdfMergeFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # --- API Gateway Route ---
+  # Defines the route that triggers the Lambda integration. Here, any POST request to the root path (/) is handled.
+  HttpApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /'
+      Target: !Sub 'integrations/${HttpApiIntegration}'
+
+  # --- API Gateway Stage ---
+  # A default stage for the API, which makes it immediately invocable.
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: '$default'
+      AutoDeploy: true
+      Tags:
+        Environment: !Ref EnvironmentName
+        Project: AtenaDocs
+
+  # --- Lambda Permission for API Gateway Invocation ---
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PdfMergeFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+  # --- AWS Amplify for Frontend Hosting ---
+  # Connects to the GitHub repository for continuous deployment of the Next.js frontend.
+  # The 'Platform' property is critical for Next.js SSR apps.
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub 'atenadocs-frontend-${EnvironmentName}'
+      Repository: !Ref GitHubRepoURL
+      AccessToken: !Ref GitHubPersonalAccessToken
+      # CRITICAL: Platform 'WEB_COMPUTE' tells Amplify to use its SSR hosting environment.
+      # The default ('WEB') is for static sites and will cause 404 errors with Next.js.
+      Platform: WEB_COMPUTE
+      EnvironmentVariables:
+        # Injects the API Gateway endpoint URL as an environment variable for the frontend build.
+        - Name: NEXT_PUBLIC_MERGE_API_URL
+          Value: !GetAtt HttpApi.ApiEndpoint
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+
+  # Defines the branch to be built and deployed by Amplify.
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !Ref MainBranchName
+      # Dynamically set the stage to PRODUCTION for the production environment.
+      Stage: !If [IsProduction, PRODUCTION, DEVELOPMENT]
+      EnableAutoBuild: true # Triggers a build on every push to this branch.
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+
+  # --- AWS Amplify Custom Domain (Optional) ---
+  # Configures a custom domain for the Amplify app if a domain name is provided.
+  AmplifyDomain:
+    Type: AWS::Amplify::Domain
+    Condition: CreateCustomDomain
+    DependsOn: AmplifyBranch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      DomainName: !Ref DomainName
+      SubDomainSettings:
+        - BranchName: !Ref MainBranchName
+          Prefix: !Ref SubDomainPrefix
+
+Outputs:
+  ApiGatewayInvokeUrl:
+    Description: "The invoke URL for the API Gateway to be used in the frontend."
+    Value: !GetAtt HttpApi.ApiEndpoint
+  PdfFilesS3BucketName:
+    Description: "The name of the S3 bucket for storing user-uploaded PDF files."
+    Value: !Ref PdfBucket
+  AmplifyAppUrl:
+    Description: "The URL of the deployed frontend application on its default Amplify domain."
+    Value: !GetAtt AmplifyApp.DefaultDomain
+  CustomDomainUrl:
+    Description: "The custom domain URL for the application. You must configure your DNS for this to work."
+    Condition: CreateCustomDomain
+    Value: !Sub "https://${SubDomainPrefix}.${DomainName}"
+
+    

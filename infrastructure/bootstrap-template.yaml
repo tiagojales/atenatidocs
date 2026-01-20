@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bootstrap infrastructure for the AtenaDocs project. This template creates a single,
+  private S3 bucket intended to store CloudFormation templates and Lambda code
+  artifacts, which are prerequisites for deploying the main application stack.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: development
+    Description: The environment name to tag resources with (e.g., development, production).
+
+Resources:
+  # --- S3 Bucket for Storing CI/CD Artifacts ---
+  # This bucket is the central repository for deployment artifacts.
+  # - The main application's CloudFormation template (template.yaml) can be uploaded here.
+  # - The zipped backend Lambda code (e.g., backend.zip) MUST be uploaded here before deployment.
+  # This allows the main stack to be deployed from a consistent, versioned location.
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # Enforce private access to ensure deployment artifacts are not publicly exposed.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Enable versioning to keep a history of uploaded artifacts (templates/code).
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AtenaDocs
+        - Key: Purpose
+          Value: CICD-Artifacts
+
+Outputs:
+  ArtifactsBucketName:
+    Description: "The name of the S3 bucket for storing templates and code artifacts."
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactsBucketName"
+  ArtifactsBucketArn:
+    Description: "The ARN of the S3 bucket for storing templates and code artifacts."
+    Value: !GetAtt ArtifactsBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactsBucketArn"
