@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bootstrap infrastructure for the AtenaDocs project. This template creates a single,
+  private S3 bucket with a standardized name to store Lambda code artifacts, which are
+  prerequisites for deploying the main application stack. This stack should only be
+  deployed once per AWS account/region.
+
+Resources:
+  # --- S3 Bucket for Storing CI/CD Artifacts ---
+  # This bucket has a predictable name based on the AWS Account ID and Region,
+  # which allows the deployment script and main CloudFormation template to reference it
+  # without needing to pass its name as a parameter.
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'atenadocs-artifacts-pdf-merge-${AWS::AccountId}-${AWS::Region}'
+      # Enforce private access to ensure deployment artifacts are not publicly exposed.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Enable versioning to keep a history of uploaded artifacts (templates/code).
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: AtenaDocs
+        - Key: Environment
+          Value: Development
+        - Key: Purpose
+          Value: CICD-Artifacts
+
+Outputs:
+  ArtifactsBucketName:
+    Description: "The standardized name of the S3 bucket for storing code artifacts."
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactsBucketName"
+  ArtifactsBucketArn:
+    Description: "The ARN of the S3 bucket for storing code artifacts."
+    Value: !GetAtt ArtifactsBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactsBucketArn"

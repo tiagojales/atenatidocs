@@ -1,0 +1,24 @@
+/**
+ * Represents the shared footer for the application.
+ * It is displayed on all pages and contains attribution and links.
+ */
+export function Footer() {
+  return (
+    <footer className="w-full border-t mx-auto">
+      <div className="flex h-24 flex-col items-center justify-center">
+        <p className="text-center text-sm text-muted-foreground">
+          Criado por{" "}
+          <a
+            href="https://www.linkedin.com/in/tiago-jales-118886121/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium underline underline-offset-4"
+          >
+            Tiago Jales
+          </a>
+          .
+        </p>
+      </div>
+    </footer>
+  );
+}
