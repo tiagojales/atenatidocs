@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the AtenaDocs Frontend.
+  This template deploys the Next.js application to AWS Amplify, connecting it
+  to a GitHub repository and configuring it for the 'dev' environment.
+  It requires the backend API URL as an input parameter.
+
+Parameters:
+  BackendApiUrl:
+    Type: String
+    Description: The full base URL of the backend API (e.g., from the backend stack's output).
+  RepositoryUrl:
+    Type: String
+    Description: The full HTTPS URL of the source code repository (e.g., 'https://github.com/your-user/your-repo.git').
+  GitHubOAuthToken:
+    Type: String
+    NoEcho: true
+    Description: >
+      A GitHub Personal Access Token with 'repo' and 'admin:repo_hook' scopes.
+      This is required for Amplify to connect to your repository.
+    MinLength: 1
+
+Resources:
+  AmplifyApp:
+    Type: 'AWS::Amplify::App'
+    Properties:
+      Name: adocs-frontend-dev
+      Description: AtenaDocs Frontend Application (Dev)
+      Repository: !Ref RepositoryUrl
+      OauthToken: !Ref GitHubOAuthToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - echo "Using Node.js version 24"
+                - nvm use 24
+                - npm install
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: .next
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - node_modules/**/*
+      CustomRules:
+        - Source: /<*>
+          Target: /index.html
+          Status: '404-200'
+
+  AmplifyDevBranch:
+    Type: 'AWS::Amplify::Branch'
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: dev
+      Stage: DEVELOPMENT
+      EnableAutoBuild: true
+      Description: Development branch for the frontend.
+      EnvironmentVariables:
+        - Name: NEXT_PUBLIC_PDF_MERGE_API_URL
+          Value: !Ref BackendApiUrl
+
+Outputs:
+  AmplifyAppId:
+    Description: The ID of the Amplify App.
+    Value: !GetAtt AmplifyApp.AppId
+    Export:
+      Name: !Sub '${AWS::StackName}-AppId'
+  DefaultDomain:
+    Description: The default domain for the deployed 'dev' branch.
+    Value: !Sub 'https://dev.${AmplifyApp.DefaultDomain}'
+    Export:
+      Name: !Sub '${AWS::StackName}-DefaultDomain'

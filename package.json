@@ -1,6 +1,6 @@
 {
-  "name": "atenadocs",
-  "version": "0.1.0",
+  "name": "adocs-frontend",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "dev": "next dev -p 9002",
