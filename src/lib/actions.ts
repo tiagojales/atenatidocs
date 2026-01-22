@@ -30,23 +30,27 @@ type MergeTriggerResult = {
 
 // The backend API URL is sourced from an environment variable.
 // This is set by the CloudFormation stack and passed to the Next.js app during the Amplify build process.
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = process.env.NEXT_PUBLIC_PDF_MERGE_API_URL;
 
 /**
  * A generic helper function to make POST requests to the external Python backend API.
  * It centralizes request logic, error handling, and JSON parsing.
+ * @param path - The specific API endpoint path (e.g., '/upload' or '/merge').
  * @param body - The JavaScript object to be sent as the JSON request body.
  * @returns The parsed JSON response from the API.
  * @throws An error if the request fails or if the API URL is not configured.
  */
-async function apiPost(body: object) {
+async function apiPost(path: string, body: object) {
   if (!API_URL) {
     throw new Error(
-      "Configuration Error: The backend API URL is not set. Please ensure the NEXT_PUBLIC_API_URL environment variable is configured in your Amplify build settings."
+      "Configuration Error: The backend API URL is not set. Please ensure the NEXT_PUBLIC_PDF_MERGE_API_URL environment variable is configured."
     );
   }
 
-  const response = await fetch(API_URL, {
+  // Construct the full URL by appending the specific path to the base API URL.
+  const fullUrl = `${API_URL}${path}`;
+
+  const response = await fetch(fullUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -94,7 +98,8 @@ async function apiPost(body: object) {
 export async function getUploadUrls(
   files: { name: string }[]
 ): Promise<PresignedUploadDetails[]> {
-  const result = await apiPost({ fileNames: files.map((f) => f.name) });
+  // Call the API with the '/upload' path.
+  const result = await apiPost("/upload", { fileNames: files.map((f) => f.name) });
   // The backend's response wraps the array in an 'uploads' key, which we extract here.
   return result.uploads;
 }
@@ -107,6 +112,7 @@ export async function getUploadUrls(
 export async function triggerPdfMerge(
   fileKeys: string[]
 ): Promise<MergeTriggerResult> {
-  const result = await apiPost({ fileKeys });
+  // Call the API with the '/merge' path.
+  const result = await apiPost("/merge", { fileKeys });
   return result;
 }
