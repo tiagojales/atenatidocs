@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Template CloudFormation para o Serviço de Merge de PDF do AtenaDocs (ambiente DEV).
+
+Resources:
+
+  PdfMergeLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub "adocs-pdf-merge-layer-${AWS::Region}"
+      Description: "Camada com a biblioteca pypdf para a função de merge."
+      Content:
+        S3Bucket: !Sub "adocs-pdf-merge-artifacts-${AWS::AccountId}-${AWS::Region}"
+        S3Key: layer.zip
+      CompatibleRuntimes:
+        - python3.14
+
+  PdfMergeStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "adocs-pdf-merge-storage-dev-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [POST, PUT, GET, HEAD]
+            AllowedOrigins: ["*"]
+            ExposedHeaders: [ETag]
+            MaxAge: 3600
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutoDeleteUploads
+            Status: Enabled
+            Prefix: "uploads/"
+            ExpirationInDays: 1
+          - Id: AutoDeleteMerged
+            Status: Enabled
+            Prefix: "merged/"
+            ExpirationInDays: 1
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: Service
+          Value: "pdf-merge"
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+
+  PdfMergeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AndLogsAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${PdfMergeStorageBucket}/uploads/*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${PdfMergeStorageBucket}/merged/*"
+              - Effect: Allow
+                Action: s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${PdfMergeStorageBucket}/uploads/*"
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "arn:aws:logs:*:*:*"
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: Service
+          Value: "pdf-merge"
+
+  PdfMergeLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "adocs-pdf-merge-lambda-dev"
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt PdfMergeLambdaRole.Arn
+      Runtime: python3.14
+      Timeout: 120
+      MemorySize: 512
+      Layers: [!Ref PdfMergeLayer]
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref PdfMergeStorageBucket
+          ENVIRONMENT_NAME: dev
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Sub "adocs-pdf-merge-artifacts-${AWS::AccountId}-${AWS::Region}"
+        S3Key: lambda_function.zip
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: Service
+          Value: "pdf-merge"
+
+  PdfMergeApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: "adocs-pdf-merge-api-dev"
+      EndpointConfiguration: { Types: [REGIONAL] }
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: Service
+          Value: "pdf-merge"
+
+  UploadResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ParentId: !GetAtt PdfMergeApi.RootResourceId
+      PathPart: upload
+
+  UploadPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ResourceId: !Ref UploadResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PdfMergeLambdaFunction.Arn}/invocations"
+
+  UploadOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ResourceId: !Ref UploadResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PdfMergeLambdaFunction.Arn}/invocations"
+
+  MergeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ParentId: !GetAtt PdfMergeApi.RootResourceId
+      PathPart: merge
+
+  MergePostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ResourceId: !Ref MergeResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PdfMergeLambdaFunction.Arn}/invocations"
+
+  MergeOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      ResourceId: !Ref MergeResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PdfMergeLambdaFunction.Arn}/invocations"
+
+  UploadLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PdfMergeLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PdfMergeApi}/*/POST/upload"
+
+  UploadOptionsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PdfMergeLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PdfMergeApi}/*/OPTIONS/upload"
+
+  MergeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PdfMergeLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PdfMergeApi}/*/POST/merge"
+
+  MergeOptionsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PdfMergeLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PdfMergeApi}/*/OPTIONS/merge"
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: [MergePostMethod, UploadPostMethod, UploadOptionsMethod, MergeOptionsMethod]
+    Properties:
+      RestApiId: !Ref PdfMergeApi
+      StageName: dev
+
+Outputs:
+  ApiGatewayEndpoint:
+    Description: "URL base da API para o serviço de merge de PDF"
+    Value: !Sub "https://${PdfMergeApi}.execute-api.${AWS::Region}.amazonaws.com/dev"
+  BucketName:
+    Description: "Nome do Bucket S3 para armazenamento de arquivos de merge"
+    Value: !Ref PdfMergeStorageBucket
