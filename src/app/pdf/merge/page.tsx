@@ -76,13 +76,12 @@ export default function MergePdfPage() {
       const blob = await response.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = "merged.pdf";
+      link.download = "aDocs-my-merged.pdf";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
     } catch (error) {
-      console.error("Download failed:", error);
       toast({
         title: "Falha no Download",
         description: "Não foi possível baixar o arquivo. Por favor, tente novamente.",
