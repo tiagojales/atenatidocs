@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AtenaDocs Frontend Stack
+  This template deploys the frontend application using AWS Amplify.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment (e.g., dev, stg, prod).
+    AllowedValues: [dev, stg, prod]
+
+  RepositoryUrl:
+    Type: String
+    Description: The full HTTPS URL of the frontend's GitHub repository.
+
+  GitHubOAuthToken:
+    Type: String
+    Description: A GitHub OAuth token with permissions to the repository.
+    NoEcho: true
+
+  ApiUrl:
+    Type: String
+    Description: The full URL of the backend API Gateway endpoint.
+
+  FrontendDomain:
+    Type: String
+    Description: The root domain name for the frontend (e.g., atenadocs.com).
+    Default: ''
+
+  HostedZoneName:
+    Type: String
+    Description: The Route 53 Hosted Zone Name (e.g., atenadocs.com.).
+    Default: ''
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref FrontendDomain, '']]
+  IsProdEnvironment: !Equals [!Ref EnvironmentName, 'prod']
+
+Resources:
+  # --- Amplify Application ---
+  AmplifyApp:
+    Type: 'AWS::Amplify::App'
+    Properties:
+      Name: !Sub 'adocs-frontend-${EnvironmentName}'
+      Platform: 'WEB_COMPUTE'
+      Description: !Sub 'Frontend for the AtenaDocs application (${EnvironmentName})'
+      Repository: !Ref RepositoryUrl
+      OauthToken: !Ref GitHubOAuthToken
+      BuildSpec: |-
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - npm ci
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: .next
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - node_modules/**/*
+      Tags:
+        - Key: Project
+          Value: adocs
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Amplify Branch Configuration ---
+  AmplifyBranch:
+    Type: 'AWS::Amplify::Branch'
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !Ref EnvironmentName
+      EnableAutoBuild: true
+      EnvironmentVariables:
+        - Name: NEXT_PUBLIC_API_URL
+          Value: !Ref ApiUrl
+        - Name: API_URL # Also provide as a server-side only variable for robustness
+          Value: !Ref ApiUrl
+      Tags:
+        - Key: Project
+          Value: adocs
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Custom Domain (for Staging and Production) ---
+  AmplifyDomain:
+    Type: 'AWS::Amplify::Domain'
+    Condition: HasCustomDomain
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      DomainName: !Ref FrontendDomain
+      SubDomainSettings:
+        - BranchName: !Ref EnvironmentName
+          Prefix: !If [IsProdEnvironment, '', !Ref EnvironmentName] # 'prod' maps to root, others get a subdomain
+
+Outputs:
+  FinalAppURL:
+    Description: 'The final, deployed URL of the application.'
+    Value:
+      Fn::If:
+        - HasCustomDomain
+        - Fn::Join:
+            - ''
+            - - 'https://'
+              - Fn::If:
+                  - IsProdEnvironment
+                  - ''
+                  - !Sub '${EnvironmentName}.'
+              - !Ref FrontendDomain
+        - !GetAtt AmplifyApp.DefaultDomain
+    Export:
+      Name: !Sub '${AWS::StackName}-FinalAppURL'

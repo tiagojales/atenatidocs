@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for creating the S3 bucket to store AtenaDocs
+  build artifacts (Lambda code and layers).
+
+# ===================================================================
+# Parameters
+# ===================================================================
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment (e.g., dev, prod).
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+# ===================================================================
+# Resources
+# ===================================================================
+Resources:
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # CORREÇÃO CRÍTICA: O nome do bucket S3 DEVE ser globalmente único.
+      # Adicionar o ID da conta e a Região garante a unicidade.
+      BucketName: !Sub "adocs-artifacts-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: adocs
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: Artifacts
+        - Key: ManagedBy
+          Value: CloudFormation
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+
+# ===================================================================
+# Outputs
+# ===================================================================
+Outputs:
+  ArtifactsBucketName:
+    Description: "The name of the S3 bucket for storing build artifacts."
+    Value: !Ref ArtifactsBucket
+    Export:
+      # A exportação permite que outras stacks (como a do backend) importem este valor.
+      Name: !Sub "adocs-artifacts-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"

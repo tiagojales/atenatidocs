@@ -31,8 +31,6 @@ S3_UPLOADS_PREFIX = "uploads/"
 S3_MERGED_PREFIX = "merged/"
 
 MAX_FILES_FOR_UPLOAD = 50
-# CORREÇÃO: Aumenta o limite POR ARQUIVO para 101MB. Isso acomoda qualquer arquivo
-# único que seja menor que o limite TOTAL do frontend (100MB), com uma pequena margem.
 MAX_SINGLE_FILE_SIZE_MB = 100
 MAX_SINGLE_FILE_SIZE_BYTES = MAX_SINGLE_FILE_SIZE_MB * 1024 * 1024
 

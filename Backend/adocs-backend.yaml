@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  AtenaDocs Backend Stack
+  This template deploys the core backend infrastructure for the AtenaDocs application,
+  including API Gateway, Lambda functions, and S3 buckets for data.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment (e.g., dev, stg, prod).
+    AllowedValues: [dev, stg, prod]
+
+  ArtifactsBucket:
+    Type: String
+    Description: The name of the S3 bucket containing the Lambda deployment artifacts.
+
+  FrontendDomain:
+    Type: String
+    Description: The domain of the frontend application for CORS configuration.
+    Default: "" # Not required for dev
+
+Conditions:
+  HasFrontendDomain: !Not [!Equals [!Ref FrontendDomain, ""]]
+
+Resources:
+  # --- S3 Bucket for PDF Data ---
+  DataBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "adocs-data-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "Authorization"
+              - "Content-Type"
+              - "x-amz-date"
+              - "x-amz-security-token"
+              - "x-amz-user-agent"
+            AllowedMethods:
+              - "GET"
+              - "PUT"
+              - "POST"
+              - "DELETE"
+              - "HEAD"
+            AllowedOrigins:
+              - !If [HasFrontendDomain, !Ref FrontendDomain, '*'] # More restrictive for prod/stg
+            MaxAge: 3000
+
+  # --- IAM Role for Lambda Function ---
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "adocs-lambda-role-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "adocs-lambda-policy-${EnvironmentName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                Resource:
+                  - !GetAtt DataBucket.Arn
+                  - !Sub "${DataBucket.Arn}/*"
+
+  # --- Lambda Layer for Dependencies ---
+  LambdaDependenciesLayer:
+    Type: "AWS::Lambda::LayerVersion"
+    Properties:
+      LayerName: !Sub "adocs-lambda-layer-${EnvironmentName}"
+      Description: "Python dependencies for the AtenaDocs Lambda function."
+      Content:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: "layer.zip"
+      CompatibleRuntimes:
+        - "python3.11"
+
+  # --- Lambda Function ---
+  ApiFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub "adocs-api-function-${EnvironmentName}"
+      Handler: "lambda_function.handler"
+      Runtime: "python3.11"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: "lambda_function.zip"
+      Layers:
+        - !Ref LambdaDependenciesLayer
+      Environment:
+        Variables:
+          DATA_BUCKET_NAME: !Ref DataBucket
+          ALLOWED_ORIGIN: !If [HasFrontendDomain, !Ref FrontendDomain, '*']
+
+  # --- API Gateway ---
+  ApiGateway:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: !Sub "adocs-api-${EnvironmentName}"
+      Description: "API for AtenaDocs PDF services."
+      EndpointConfiguration:
+        Types:
+          - "REGIONAL"
+      BinaryMediaTypes:
+        - "application/pdf"
+
+  ApiGatewayRootMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !GetAtt ApiGateway.RootResourceId
+      HttpMethod: "ANY"
+      AuthorizationType: "NONE"
+      Integration:
+        Type: "AWS_PROXY"
+        IntegrationHttpMethod: "POST"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations"
+
+  ApiGatewayProxyResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "{proxy+}"
+
+  ApiGatewayProxyMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiGatewayProxyResource
+      HttpMethod: "ANY"
+      AuthorizationType: "NONE"
+      Integration:
+        Type: "AWS_PROXY"
+        IntegrationHttpMethod: "POST"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations"
+
+  ApiGatewayDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn: [ApiGatewayProxyMethod, ApiGatewayRootMethod]
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref EnvironmentName
+
+  # --- Lambda Permissions for API Gateway ---
+  LambdaApiGatewayPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !GetAtt ApiFunction.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*"
+
+Outputs:
+  ApiUrl:
+    Description: "The URL of the deployed API Gateway stage."
+    Value: !Sub "https:///${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiUrl"

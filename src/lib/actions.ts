@@ -29,8 +29,8 @@ type MergeTriggerResult = {
 };
 
 // The backend API URL is sourced from an environment variable.
-// This is set by the CloudFormation stack and passed to the Next.js app during the Amplify build process.
-const API_URL = process.env.NEXT_PUBLIC_PDF_MERGE_API_URL;
+// It first checks for a server-side specific variable (API_URL) and falls back to the public one.
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
 
 /**
  * A generic helper function to make POST requests to the external Python backend API.
@@ -43,7 +43,7 @@ const API_URL = process.env.NEXT_PUBLIC_PDF_MERGE_API_URL;
 async function apiPost(path: string, body: object) {
   if (!API_URL) {
     throw new Error(
-      "Configuration Error: The backend API URL is not set. Please ensure the NEXT_PUBLIC_PDF_MERGE_API_URL environment variable is configured."
+      "Configuration Error: The backend API URL is not set. Please ensure the API_URL or NEXT_PUBLIC_API_URL environment variable is configured."
     );
   }
 
