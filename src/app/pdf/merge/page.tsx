@@ -76,7 +76,7 @@ export default function MergePdfPage() {
       const blob = await response.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = "adocs-doc-combinado.pdf";
+      link.download = "adocs-documento-combinado.pdf";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -99,7 +99,7 @@ export default function MergePdfPage() {
         <Card className="p-6 sm:p-8 text-center">
           <h2 className="text-2xl font-bold mb-4">Seus PDFs foram combinados!</h2>
           <p className="text-muted-foreground mb-6">Seu arquivo está pronto. Clique no botão abaixo para fazer o download.</p>
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+          <div className="flex flex-col justify-center items-center gap-4">
             <Button onClick={() => handleDownload(mergedPdfUrl)} size="lg" disabled={isDownloading}>
               {isDownloading ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -110,7 +110,7 @@ export default function MergePdfPage() {
             </Button>
             <Button onClick={handleStartOver} variant="outline" size="lg" disabled={isDownloading}>
               <ReplyAll className="mr-2 h-5 w-5" />
-              Começar de Novo
+              Refazer
             </Button>
           </div>
         </Card>
@@ -118,7 +118,7 @@ export default function MergePdfPage() {
         <div className="space-y-8 ">
           <div className="text-center space-y-2">
               <div className="flex items-center justify-center gap-3">
-                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Juntar Arquivos PDF</h1>
+                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Combinar Arquivos PDF</h1>
               </div>
               <p className="text-lg text-muted-foreground">Arraste, solte, reordene e combine seus PDFs em um único arquivo.</p>
           </div>
