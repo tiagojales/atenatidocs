@@ -21,7 +21,6 @@ S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
 ENVIRONMENT_NAME = os.environ.get('ENVIRONMENT_NAME', 'dev')
 AWS_REGION_NAME = os.environ.get('AWS_REGION_NAME')
 
-# Configuração do cliente S3 para usar a versão de assinatura v4, essencial para URLs pré-assinadas.
 s3_client = boto3.client(
     's3',
     region_name=AWS_REGION_NAME,
@@ -32,9 +31,9 @@ S3_UPLOADS_PREFIX = "uploads/"
 S3_MERGED_PREFIX = "merged/"
 
 MAX_FILES_FOR_UPLOAD = 50
-# O frontend valida o tamanho TOTAL. O backend impõe um limite POR ARQUIVO como uma salvaguarda.
-# Vamos definir um limite generoso por arquivo, por ex. 50MB. O limite total do frontend atuará primeiro.
-MAX_SINGLE_FILE_SIZE_MB = 50
+# CORREÇÃO: Aumenta o limite POR ARQUIVO para 101MB. Isso acomoda qualquer arquivo
+# único que seja menor que o limite TOTAL do frontend (100MB), com uma pequena margem.
+MAX_SINGLE_FILE_SIZE_MB = 100
 MAX_SINGLE_FILE_SIZE_BYTES = MAX_SINGLE_FILE_SIZE_MB * 1024 * 1024
 
 CORS_HEADERS = {
@@ -48,8 +47,18 @@ CORS_HEADERS = {
 # =============================================================================
 
 def sanitize_filename(filename):
-    """Remove caracteres potencialmente problemáticos dos nomes de arquivo."""
-    return re.sub(r'[^a-zA-Z0-9_.-]', '', filename)
+    """
+    Sanitiza um nome de arquivo usando uma abordagem de "lista branca" com expressões regulares.
+    """
+    if not filename:
+        return ""
+    safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    safe_name = safe_name.lstrip('.')
+    if not safe_name:
+        _root, extension = os.path.splitext(filename)
+        safe_extension = re.sub(r'[^a-zA-Z0-9.]', '_', extension)
+        return f"{uuid.uuid4()}{safe_extension}"
+    return safe_name
 
 # =============================================================================
 # Endpoint: /upload
@@ -69,18 +78,13 @@ def generate_presigned_urls(event):
             'body': json.dumps({'error': f"O campo 'fileNames' deve ser uma lista contendo de 1 a {MAX_FILES_FOR_UPLOAD} nomes de arquivo."})
         }
 
-    # CORREÇÃO 1: Gera um único ID de transação para todo o lote de arquivos.
-    # Isso garante que todos os arquivos de uma mesma operação de merge fiquem na mesma "pasta" do S3.
     transaction_id = str(uuid.uuid4())
     response_parts = []
 
     for file_name in file_names:
         sanitized_filename = sanitize_filename(file_name)
-        # O caminho no S3 agora usa o transaction_id compartilhado.
         key = f"{S3_UPLOADS_PREFIX}{transaction_id}/{sanitized_filename}"
 
-        # A política do S3 agora inclui o campo 'Content-Type' explicitamente.
-        # O frontend DEVE fornecer este campo no FormData para que o upload seja aceito.
         fields = {"Content-Type": "application/pdf"}
         conditions = [
             fields,
@@ -92,12 +96,10 @@ def generate_presigned_urls(event):
             Key=key,
             Fields=fields,
             Conditions=conditions,
-            ExpiresIn=3600  # 1 hora
+            ExpiresIn=3600
         )
         response_parts.append({
             'originalFileName': file_name,
-            # CORREÇÃO 2: Retornamos a chave (key) do objeto explicitamente.
-            # O frontend usará isso para rastrear os arquivos e solicitar o merge final.
             'key': key,
             'post_details': presigned_post
         })
@@ -119,10 +121,9 @@ def merge_pdfs(event):
     body = json.loads(event.get('body', '{}'))
     file_keys = body.get('fileKeys', [])
 
-    if len(file_keys) < 1: # Permitir "merge" de um único arquivo (efetivamente, uma cópia)
+    if len(file_keys) < 1:
         return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Pelo menos um arquivo é necessário.'})}
 
-    # Validação de segurança: Garante que estamos acessando apenas a pasta de uploads.
     for key in file_keys:
         if not key.startswith(S3_UPLOADS_PREFIX):
             return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Acesso negado: Chave de arquivo inválida.'})}
@@ -130,20 +131,16 @@ def merge_pdfs(event):
     merger = PdfWriter()
     
     try:
-        # Itera sobre as chaves na ordem exata fornecida pelo cliente.
         for key in file_keys:
             s3_object = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=key)
             pdf_stream = BytesIO(s3_object['Body'].read())
-            
-            # Usar PdfReader para maior compatibilidade
             reader = PdfReader(pdf_stream)
             for page in reader.pages:
                 merger.add_page(page)
 
-        # Salva o resultado em um buffer na memória.
         merged_stream = BytesIO()
         merger.write(merged_stream)
-        merged_stream.seek(0) # Retorna ao início do buffer para o upload.
+        merged_stream.seek(0)
 
         merged_key = f"{S3_MERGED_PREFIX}{uuid.uuid4()}.pdf"
         
@@ -154,7 +151,6 @@ def merge_pdfs(event):
             ContentType='application/pdf'
         )
 
-        # Gera a URL de download para o arquivo final.
         download_url = s3_client.generate_presigned_url(
             'get_object',
             Params={'Bucket': S3_BUCKET_NAME, 'Key': merged_key},
@@ -169,7 +165,6 @@ def merge_pdfs(event):
 
     finally:
         merger.close()
-        # Limpeza: Deleta os arquivos originais da pasta de uploads após o merge.
         if file_keys:
             s3_client.delete_objects(
                 Bucket=S3_BUCKET_NAME,
@@ -182,7 +177,6 @@ def merge_pdfs(event):
 
 def lambda_handler(event, context):
     """Ponto de entrada principal e roteador."""
-    # Tratamento da requisição pre-flight (CORS)
     if event.get('httpMethod') == 'OPTIONS':
         return {
             'statusCode': 200,
@@ -190,7 +184,6 @@ def lambda_handler(event, context):
             'body': json.dumps({'message': 'CORS preflight successful'})
         }
 
-    # Validação da configuração do ambiente
     if not all([S3_BUCKET_NAME, AWS_REGION_NAME]):
         error_msg = 'Configuração do servidor incompleta: Variáveis de ambiente não definidas.'
         print(f"CRITICAL ERROR: {error_msg}")

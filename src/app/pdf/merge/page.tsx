@@ -8,6 +8,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Download, ReplyAll, Loader2 } from "lucide-react";
 
+// --- CONSTANTES DE VALIDAÇÃO ---
+const MAX_TOTAL_SIZE_MB = 100;
+const MAX_TOTAL_SIZE_BYTES = MAX_TOTAL_SIZE_MB * 1024 * 1024;
+
+// CORREÇÃO: Adiciona uma constante para o limite de tamanho de arquivo individual.
+const MAX_SINGLE_FILE_SIZE_MB = 100;
+const MAX_SINGLE_FILE_SIZE_BYTES = MAX_SINGLE_FILE_SIZE_MB * 1024 * 1024;
+
 export default function MergePdfPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [mergedPdfUrl, setMergedPdfUrl] = useState<string | null>(null);
@@ -15,25 +23,34 @@ export default function MergePdfPage() {
   const { toast } = useToast();
 
   const handleFilesSelected = (selectedFiles: File[]) => {
-    const MAX_TOTAL_SIZE_MB = 100;
-    const MAX_TOTAL_SIZE_BYTES = MAX_TOTAL_SIZE_MB * 1024 * 1024;
-
     const currentSize = files.reduce((sum, file) => sum + file.size, 0);
     let newFilesSize = 0;
 
     const newFiles = selectedFiles.filter((file) => {
+      // 1. Validação de tipo
       if (file.type !== "application/pdf") {
         toast({ title: "Arquivo inválido", description: `O arquivo '${file.name}' não é um PDF.`, variant: "destructive" });
         return false;
       }
+      
+      // CORREÇÃO: 2. Validação de tamanho de arquivo individual
+      if (file.size > MAX_SINGLE_FILE_SIZE_BYTES) {
+        toast({ title: "Arquivo muito grande", description: `O arquivo '${file.name}' excede o limite de ${MAX_SINGLE_FILE_SIZE_MB}MB.`, variant: "destructive" });
+        return false;
+      }
+
+      // 3. Validação de duplicatas
       if (files.some((existing) => existing.name === file.name)) {
         toast({ title: "Arquivo duplicado", description: `O arquivo '${file.name}' já foi adicionado.`, variant: "destructive" });
         return false;
       }
+      
+      // 4. Validação de tamanho total
       if (currentSize + newFilesSize + file.size > MAX_TOTAL_SIZE_BYTES) {
         toast({ title: "Limite de tamanho excedido", description: `A seleção atual excede o limite total de ${MAX_TOTAL_SIZE_MB}MB.`, variant: "destructive" });
         return false;
       }
+
       newFilesSize += file.size;
       return true;
     });
@@ -118,7 +135,7 @@ export default function MergePdfPage() {
         <div className="space-y-8 ">
           <div className="text-center space-y-2">
               <div className="flex items-center justify-center gap-3">
-                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Juntar Arquivos PDF</h1>
+                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Combinar Arquivos PDF</h1>
               </div>
               <p className="text-lg text-muted-foreground">Arraste, solte, reordene e combine seus PDFs em um único arquivo.</p>
           </div>
