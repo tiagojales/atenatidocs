@@ -118,7 +118,7 @@ export default function MergePdfPage() {
         <div className="space-y-8 ">
           <div className="text-center space-y-2">
               <div className="flex items-center justify-center gap-3">
-                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Combinar Arquivos PDF</h1>
+                  <h1 className="text-4xl font-bold tracking-tight text-foreground">Juntar Arquivos PDF</h1>
               </div>
               <p className="text-lg text-muted-foreground">Arraste, solte, reordene e combine seus PDFs em um único arquivo.</p>
           </div>

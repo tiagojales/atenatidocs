@@ -22,7 +22,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'AtenaDocs - Ferramentas de Documentos Online',
+  title: 'aDocs - Ferramentas de Documentos Online',
   description: 'AtenaDocs oferece ferramentas online gratuitas para trabalhar com documentos, como juntar arquivos PDF.',
 };
 

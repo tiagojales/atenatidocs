@@ -26,7 +26,7 @@ export function Footer() {
             rel="noreferrer"
             className="font-medium underline underline-offset-4"
           >
-            0.1.2-dev
+            0.1.3-dev
           </a>
         </p>
       </div>

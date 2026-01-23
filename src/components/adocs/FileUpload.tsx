@@ -90,7 +90,7 @@ export function FileUpload({ onFilesSelected }: FileUploadProps) {
       <p className="text-lg font-semibold text-foreground">
         Arraste e solte os PDFs aqui
       </p>
-      <p className="text-muted-foreground">Ou clique para selecionar os arquivos</p>
+      <p className="text-muted-foreground">Ou clique para selecionar os arquivos no seu dispositivo</p>
     </div>
   );
 }
