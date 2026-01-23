@@ -29,7 +29,7 @@ import json
 # ===================================================================
 # ATENÇÃO: Cole aqui a URL de saída do seu deploy do CloudFormation.
 # Exemplo: "https://xxxxxxxxx.execute-api.sa-east-1.amazonaws.com/dev"
-API_GATEWAY_BASE_URL = "https://8qy654gonb.execute-api.sa-east-1.amazonaws.com/dev"
+API_GATEWAY_BASE_URL = "https://vef3gnw5af.execute-api.sa-east-1.amazonaws.com/dev"
 # ===================================================================
 
 # Conteúdo binário de um PDF de uma página em branco. Este é um PDF válido

@@ -1,44 +1,41 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Template CloudFormation para o Bucket de Artefatos do AtenaDocs.
+  CloudFormation template for the AtenaDocs Artifacts Bucket.
 
-  Este template cria um único bucket S3 com um propósito específico: armazenar os
-  artefatos de build (código-fonte empacotado e camadas de dependência) que serão
-  usados por outras stacks do CloudFormation, como o `backend-dev-template.yaml`.
+  This template creates a single S3 bucket with a specific purpose: to store the
+  build artifacts (packaged source code and dependency layers) that will be
+  used by other CloudFormation stacks, such as `backend-dev-template.yaml`.
 
-  Separar a criação deste bucket em um template próprio é uma boa prática pois
-  ele é um recurso de "bootstrap" que raramente muda e é pré-requisito para
-  o deploy das aplicações.
+  Separating the creation of this bucket into its own template is a good practice because
+  it is a bootstrap resource that rarely changes and is a prerequisite for
+  deploying applications.
 
 Resources:
 
-  # --- Bucket S3 para Artefatos de Build ---
+  # --- S3 Bucket for Build Artifacts ---
   PdfMergeArtifactsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # O nome do bucket é padronizado para ser único globalmente, incluindo o ID da conta
-      # e a região. Isso evita conflitos de nomenclatura.
       BucketName: !Sub "adocs-pdf-merge-artifacts-${AWS::AccountId}-${AWS::Region}"
-      # Bloqueia todo o acesso público. Este bucket só precisa ser acessível pelo
-      # terminal do desenvolvedor (para upload) e pelo CloudFormation (para deploy).
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      # Tags para identificar o propósito do bucket.
       Tags:
-        - Key: Service
-          Value: "pdf-merge"
-        - Key: Purpose
-          Value: "ArtifactStorage"
+        - Key: Project
+          Value: adocs
         - Key: Environment
-          Value: dev
+          Value: Development
+        - Key: Component
+          Value: Backend-Artifacts
+        - Key: ManagedBy
+          Value: CloudFormation
 
 # =============================================================================
-# SAÍDAS (OUTPUTS)
+# OUTPUTS
 # =============================================================================
 Outputs:
   BucketName:
-    Description: "Nome do bucket S3 para os artefatos do serviço de merge de PDF"
+    Description: "Name of the S3 bucket for the PDF merge service artifacts"
     Value: !Ref PdfMergeArtifactsBucket

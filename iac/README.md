@@ -1,145 +1,99 @@
-# Serviço de Merge de PDF do AtenaDocs
+# Infraestrutura como Código (IaC) para o Projeto AtenaDocs
 
-Este projeto implementa um serviço de backend serverless na AWS para juntar múltiplos arquivos PDF em um único documento. A arquitetura é construída para ser escalável, segura e de baixo custo, utilizando o modelo de "pagamento por uso".
+Este diretório contém todos os recursos de Infraestrutura como Código (IaC) para o projeto AtenaDocs, utilizando AWS CloudFormation.
 
-## Arquitetura
+## Estrutura de Arquivos
 
-O serviço utiliza uma arquitetura serverless orientada a eventos, composta pelos seguintes serviços da AWS:
+-   `backend-artifacts-template.yaml`: Template CloudFormation para criar o bucket S3 que armazena os artefatos de build do backend (código Lambda e Layers).
+-   `backend-dev-template.yaml`: Template CloudFormation para o ambiente de desenvolvimento do backend. Cria a função Lambda, API Gateway, Bucket S3 de armazenamento e todas as permissões (IAM) necessárias.
+-   `frontend-dev-template.yaml`: Template CloudFormation para o ambiente de desenvolvimento do frontend. Cria a aplicação AWS Amplify e a configura para build e deploy contínuo a partir do GitHub.
+-   `backend-artifacts-setup.sh`: Script de automação para preparar e fazer o upload dos artefatos do backend (código da função e dependências) para o bucket S3.
+-   `lambda_function.py`: O código-fonte da função AWS Lambda que executa a lógica de merge dos PDFs.
+-   `test_script.py`: Um script de teste de integração para validar o backend de ponta a ponta.
+-   `README.md`: Este documento.
 
-- **Amazon API Gateway:** Atua como o ponto de entrada (HTTP) para todas as requisições dos clientes. Ele expõe dois endpoints (`/upload` e `/merge`) e os roteia para a função Lambda.
+## Ordem de Deploy da Infraestrutura
 
-- **AWS Lambda:** É o cérebro da aplicação. O código Python (`lambda_function.py`) executa a lógica de negócio, que inclui a geração de URLs para upload, a junção dos PDFs e a geração da URL de download.
+A implantação da infraestrutura deve seguir uma ordem específica para garantir que as dependências entre os recursos sejam satisfeitas. Siga estritamente as etapas abaixo.
 
-- **Amazon S3 (Simple Storage Service):** É usado para armazenamento. Ele possui duas funções principais:
-  1.  **Bucket de Armazenamento:** Recebe os uploads dos PDFs originais e armazena o PDF final resultante da junção. Os arquivos são acessados de forma segura através de URLs pré-assinadas.
-  2.  **Bucket de Artefatos:** Armazena o código-fonte empacotado (`.zip`) da aplicação, que o CloudFormation usa durante o processo de deploy.
+### Etapa 1: Criar o Repositório de Artefatos do Backend
 
-- **AWS CloudFormation:** Utilizado para provisionar e gerenciar toda a infraestrutura como código (IaC). Os templates `.yaml` descrevem todos os recursos da AWS necessários, garantindo deploys consistentes e reproduzíveis.
+**O quê?** Implanta o template que cria o bucket S3 para guardar o código da aplicação.
 
-- **AWS IAM (Identity and Access Management):** Gerencia as permissões de forma segura, garantindo que cada componente (ex: Lambda) tenha apenas o acesso estritamente necessário para realizar suas tarefas (Princípio do Menor Privilégio).
-
----
-
-## Ordem de Configuração e Deploy
-
-A implantação da infraestrutura é dividida em etapas lógicas para garantir que as dependências sejam resolvidas corretamente. Siga a ordem abaixo.
-
-### Pré-requisitos
-
-- [AWS CLI](https://aws.amazon.com/cli/) instalado e configurado com credenciais de acesso.
-- Python e `pip` instalados.
-- `zip` instalado.
-
-### Passo 1: Deploy do Bucket de Artefatos (Execução Única)
-
-Este bucket armazena os artefatos de build. Ele só precisa ser criado uma vez por combinação de conta/região da AWS.
+**Comando:**
 
 ```bash
 aws cloudformation deploy \
-  --template-file backend-artifacts-template.yaml \
-  --stack-name adocs-pdf-merge-artifacts-stack \
+  --template-file iac/backend-artifacts-template.yaml \
+  --stack-name adocs-backend-artifacts-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-### Passo 2: Preparação e Upload dos Artefatos
+**Por quê?** Este bucket é um pré-requisito para a próxima etapa. Ele precisa existir para que você tenha um local para enviar o código da sua função Lambda.
 
-Este script empacota o código da Lambda e suas dependências, e faz o upload para o bucket de artefatos criado no passo anterior.
+### Etapa 2: Empacotar e Enviar o Código do Backend
+
+**O quê?** Executa o script que prepara o código da Lambda e suas dependências, empacota em arquivos `.zip` e os envia para o bucket criado na Etapa 1.
+
+**Comando:**
 
 ```bash
-bash backend-artifacts-setup.sh
+bash iac/backend-artifacts-setup.sh
 ```
 
-### Passo 3: Deploy da Aplicação Principal
+**Por quê?** O template da aplicação backend (próxima etapa) precisa encontrar esses arquivos `.zip` no S3 para criar a função Lambda e sua camada de dependências.
 
-Com os artefatos no S3, este comando implanta a API Gateway, a Lambda, o bucket de armazenamento e todas as permissões necessárias.
+### Etapa 3: Deploy da Aplicação Backend
+
+**O quê?** Implanta o template principal do backend, que cria a função Lambda, o API Gateway, o bucket de armazenamento e as permissões.
+
+**Comando:**
 
 ```bash
 aws cloudformation deploy \
-  --template-file backend-dev-template.yaml \
-  --stack-name adocs-pdf-merge-dev-stack \
+  --template-file iac/backend-dev-template.yaml \
+  --stack-name adocs-backend-dev-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-### Passo 4: Teste de Integração
+**Por quê?** Esta etapa cria a API que o frontend irá consumir. Após sua conclusão, você terá a `ApiGatewayEndpoint` como saída, que é essencial para a próxima etapa.
 
-Após o deploy, a URL base da API será exibida nas saídas (Outputs) do CloudFormation. 
+### Etapa 4: Deploy da Aplicação Frontend
 
-1.  Copie esta URL.
-2.  Cole-a na variável `API_GATEWAY_BASE_URL` dentro do arquivo `test_script.py`.
-3.  Execute o script para validar todo o fluxo da aplicação.
+**O quê?** Implanta o template do frontend, que configura o AWS Amplify para se conectar ao seu repositório GitHub.
+
+**Comando:**
 
 ```bash
-python3 test_script.py
+# Primeiro, obtenha o URL da API do stack do backend
+BACKEND_URL=$(aws cloudformation describe-stacks --stack-name adocs-backend-dev-stack --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayEndpoint'].OutputValue" --output text)
+
+# Agora, faça o deploy do frontend com os parâmetros necessários
+aws cloudformation deploy \
+  --template-file iac/frontend-dev-template.yaml \
+  --stack-name adocs-frontend-dev-stack \
+  --parameter-overrides \
+    BackendApiUrl=$BACKEND_URL \
+    RepositoryUrl=<URL_HTTPS_DO_SEU_REPO_GITHUB> \
+    GitHubOAuthToken=<SEU_TOKEN_PESSOAL_DO_GITHUB> \
+  --capabilities CAPABILITY_IAM
 ```
 
----
+**Por quê?** Isso prepara o ambiente no Amplify. Ele configura o pipeline de build, o deploy e injeta a URL do backend como uma variável de ambiente para a sua aplicação Next.js.
 
-## Documentação da API
+### Etapa 5: Iniciar o Build e Deploy do Frontend
 
-A API possui dois endpoints públicos.
+**O quê?** Envia seu código mais recente para a branch `dev` do repositório no GitHub para acionar o pipeline do Amplify.
 
-### 1. `POST /upload`
+**Ação:**
 
-Este endpoint é usado para solicitar URLs seguras para fazer o upload de arquivos diretamente para o S3.
+```bash
+git add .
+git commit -m "Triggering Amplify build"
+git push origin dev
+```
 
-- **Input (Corpo da Requisição):**
-  ```json
-  {
-    "fileNames": ["documento1.pdf", "contrato.pdf"]
-  }
-  ```
-
-- **Output (Resposta de Sucesso `200 OK`):**
-  ```json
-  {
-    "uploads": [
-      {
-        "originalFileName": "documento1.pdf",
-        "post_details": {
-          "url": "https://s3-bucket-url.com/",
-          "fields": {
-            "Content-Type": "application/pdf",
-            "key": "uploads/uuid/documento1.pdf",
-            "AWSAccessKeyId": "...",
-            "policy": "...",
-            "signature": "..."
-          }
-        }
-      },
-      { ... }
-    ]
-  }
-  ```
-
-### 2. `POST /merge`
-
-Este endpoint inicia o processo de junção dos arquivos que já foram enviados para o S3.
-
-- **Input (Corpo da Requisição):**
-  ```json
-  {
-    "fileKeys": [
-      "uploads/uuid/documento1.pdf",
-      "uploads/uuid/contrato.pdf"
-    ]
-  }
-  ```
-
-- **Output (Resposta de Sucesso `200 OK`):**
-  ```json
-  {
-    "message": "PDFs juntados com sucesso!",
-    "downloadUrl": "https://s3.presigned-url.com/para/download/do/resultado.pdf?AWSAccessKeyId=..."
-  }
-  ```
-
----
-
-## Ambientes: Desenvolvimento vs. Deploy
-
--   **Desenvolvimento:** O ciclo de desenvolvimento ocorre localmente. Você edita os arquivos de código (`lambda_function.py`) e de infraestrutura (`.yaml`) no seu ambiente. O `test_script.py` é a principal ferramenta para interagir com a infraestrutura já implantada na AWS e validar as alterações.
-
--   **Deploy:** O processo de deploy é a transição do código local para a infraestrutura na nuvem. Ele não é feito manualmente, mas sim de forma automatizada e declarativa através dos scripts (`backend-artifacts-setup.sh`) e templates do CloudFormation. Isso garante que cada deploy seja consistente e evita a "deriva de configuração" (diferenças manuais entre ambientes).
+**Por quê?** O `push` para a branch `dev` é o gatilho que o AWS Amplify espera. Ao receber essa notificação do GitHub, ele inicia automaticamente o pipeline de CI/CD: baixa o código, executa o build (`npm run build`) e, se bem-sucedido, publica o site no domínio público.
 
 ## Considerações de Segurança
 

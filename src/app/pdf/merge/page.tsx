@@ -6,11 +6,12 @@ import { FileList } from "@/components/adocs/FileList";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Download, ReplyAll } from "lucide-react";
+import { Download, ReplyAll, Loader2 } from "lucide-react";
 
 export default function MergePdfPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [mergedPdfUrl, setMergedPdfUrl] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
 
   const handleFilesSelected = (selectedFiles: File[]) => {
@@ -52,15 +53,9 @@ export default function MergePdfPage() {
     setFiles([]);
   };
 
-  /**
-   * Callback acionado pelo FileList após um merge bem-sucedido.
-   * Define a URL de download e limpa os arquivos, mudando a UI para a tela de sucesso.
-   * @param downloadUrl - A URL pré-assinada do PDF combinado.
-   */
   const handleMergeSuccess = (downloadUrl: string) => {
     setMergedPdfUrl(downloadUrl);
-    setFiles([]); // Limpa a lista de arquivos para a próxima operação
-    // A linha de download automático foi removida, conforme solicitado.
+    setFiles([]); 
   };
 
   const handleStartOver = () => {
@@ -68,28 +63,58 @@ export default function MergePdfPage() {
     setFiles([]);
   };
 
+  const handleDownload = async (url: string | null) => {
+    if (!url) return;
+    setIsDownloading(true);
+    toast({ title: "Iniciando o download...", description: "Seu PDF está sendo preparado." });
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Falha ao buscar o arquivo. Status: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "merged.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast({
+        title: "Falha no Download",
+        description: "Não foi possível baixar o arquivo. Por favor, tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-4 sm:py-12">
       {mergedPdfUrl ? (
-        // --- TELA DE DOWNLOAD E SUCESSO ---
         <Card className="p-6 sm:p-8 text-center">
           <h2 className="text-2xl font-bold mb-4">Seus PDFs foram juntados!</h2>
-          <p className="text-muted-foreground mb-6">O link para download está disponível. Clique no botão abaixo para baixar.</p>
+          <p className="text-muted-foreground mb-6">O arquivo está pronto. Clique no botão abaixo para baixar.</p>
           <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
-            <Button asChild size="lg">
-              <a href={mergedPdfUrl} download>
+            <Button onClick={() => handleDownload(mergedPdfUrl)} size="lg" disabled={isDownloading}>
+              {isDownloading ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
                 <Download className="mr-2 h-5 w-5" />
-                Baixar PDF
-              </a>
+              )}
+              {isDownloading ? "Baixando..." : "Baixar PDF"}
             </Button>
-            <Button onClick={handleStartOver} variant="outline" size="lg">
+            <Button onClick={handleStartOver} variant="outline" size="lg" disabled={isDownloading}>
               <ReplyAll className="mr-2 h-5 w-5" />
               Refazer
             </Button>
           </div>
         </Card>
       ) : (
-        // --- TELA DE UPLOAD ---
         <div className="space-y-8 ">
           <div className="text-center space-y-2">
               <div className="flex items-center justify-center gap-3">
@@ -97,11 +122,9 @@ export default function MergePdfPage() {
               </div>
               <p className="text-lg text-muted-foreground">Arraste, solte, reordene e junte seus PDFs em um só.</p>
           </div>
-
           <Card className="p-6 sm:p-8">
             <FileUpload onFilesSelected={handleFilesSelected} />
           </Card>
-
           {files.length > 0 && (
             <FileList
               files={files}

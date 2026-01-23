@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Template CloudFormation para o Serviço de Merge de PDF do AtenaDocs (ambiente DEV).
+  CloudFormation template for the AtenaDocs PDF Merge Service (DEV environment).
 
 Resources:
 
@@ -8,7 +8,7 @@ Resources:
     Type: AWS::Lambda::LayerVersion
     Properties:
       LayerName: !Sub "adocs-pdf-merge-layer-${AWS::Region}"
-      Description: "Camada com a biblioteca pypdf para a função de merge."
+      Description: "Layer with the pypdf library for the merge function."
       Content:
         S3Bucket: !Sub "adocs-pdf-merge-artifacts-${AWS::AccountId}-${AWS::Region}"
         S3Key: layer.zip
@@ -42,10 +42,14 @@ Resources:
             Prefix: "merged/"
             ExpirationInDays: 1
       Tags:
+        - Key: Project
+          Value: adocs
         - Key: Environment
-          Value: dev
-        - Key: Service
-          Value: "pdf-merge"
+          Value: Development
+        - Key: Component
+          Value: Backend
+        - Key: ManagedBy
+          Value: CloudFormation
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
 
@@ -80,10 +84,14 @@ Resources:
                 Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
                 Resource: "arn:aws:logs:*:*:*"
       Tags:
+        - Key: Project
+          Value: adocs
         - Key: Environment
-          Value: dev
-        - Key: Service
-          Value: "pdf-merge"
+          Value: Development
+        - Key: Component
+          Value: Backend
+        - Key: ManagedBy
+          Value: CloudFormation
 
   PdfMergeLambdaFunction:
     Type: AWS::Lambda::Function
@@ -92,7 +100,7 @@ Resources:
       Handler: lambda_function.lambda_handler
       Role: !GetAtt PdfMergeLambdaRole.Arn
       Runtime: python3.14
-      Timeout: 120
+      Timeout: 150
       MemorySize: 512
       Layers: [!Ref PdfMergeLayer]
       Environment:
@@ -104,10 +112,14 @@ Resources:
         S3Bucket: !Sub "adocs-pdf-merge-artifacts-${AWS::AccountId}-${AWS::Region}"
         S3Key: lambda_function.zip
       Tags:
+        - Key: Project
+          Value: adocs
         - Key: Environment
-          Value: dev
-        - Key: Service
-          Value: "pdf-merge"
+          Value: Development
+        - Key: Component
+          Value: Backend
+        - Key: ManagedBy
+          Value: CloudFormation
 
   PdfMergeApi:
     Type: AWS::ApiGateway::RestApi
@@ -115,10 +127,14 @@ Resources:
       Name: "adocs-pdf-merge-api-dev"
       EndpointConfiguration: { Types: [REGIONAL] }
       Tags:
+        - Key: Project
+          Value: adocs
         - Key: Environment
-          Value: dev
-        - Key: Service
-          Value: "pdf-merge"
+          Value: Development
+        - Key: Component
+          Value: Backend
+        - Key: ManagedBy
+          Value: CloudFormation
 
   UploadResource:
     Type: AWS::ApiGateway::Resource
@@ -223,8 +239,8 @@ Resources:
 
 Outputs:
   ApiGatewayEndpoint:
-    Description: "URL base da API para o serviço de merge de PDF"
+    Description: "Base URL of the API for the PDF merge service"
     Value: !Sub "https://${PdfMergeApi}.execute-api.${AWS::Region}.amazonaws.com/dev"
   BucketName:
-    Description: "Nome do Bucket S3 para armazenamento de arquivos de merge"
+    Description: "Name of the S3 Bucket for merge file storage"
     Value: !Ref PdfMergeStorageBucket

@@ -1,24 +1,20 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  CloudFormation template for the AtenaDocs Frontend.
-  This template deploys the Next.js application to AWS Amplify, connecting it
-  to a GitHub repository and configuring it for the 'dev' environment.
-  It requires the backend API URL as an input parameter.
+  (Robust) CloudFormation template for the AtenaDocs Frontend.
+  This version explicitly sets the platform to WEB_COMPUTE to ensure Next.js (SSR) 
+  support is enabled, preventing 404 errors by forcing the correct deployment environment.
 
 Parameters:
   BackendApiUrl:
     Type: String
-    Description: The full base URL of the backend API (e.g., from the backend stack's output).
+    Description: The full base URL of the backend API.
   RepositoryUrl:
     Type: String
-    Description: The full HTTPS URL of the source code repository (e.g., 'https://github.com/your-user/your-repo.git').
+    Description: The full HTTPS URL of the source code repository.
   GitHubOAuthToken:
     Type: String
     NoEcho: true
-    Description: >
-      A GitHub Personal Access Token with 'repo' and 'admin:repo_hook' scopes.
-      This is required for Amplify to connect to your repository.
-    MinLength: 1
+    Description: A GitHub Personal Access Token with 'repo' and 'admin:repo_hook' scopes.
 
 Resources:
   AmplifyApp:
@@ -28,29 +24,17 @@ Resources:
       Description: AtenaDocs Frontend Application (Dev)
       Repository: !Ref RepositoryUrl
       OauthToken: !Ref GitHubOAuthToken
-      BuildSpec: |
-        version: 1
-        frontend:
-          phases:
-            preBuild:
-              commands:
-                - echo "Using Node.js version 24"
-                - nvm use 24
-                - npm install
-            build:
-              commands:
-                - npm run build
-          artifacts:
-            baseDirectory: .next
-            files:
-              - '**/*'
-          cache:
-            paths:
-              - node_modules/**/*
-      CustomRules:
-        - Source: /<*>
-          Target: /index.html
-          Status: '404-200'
+      Platform: WEB_COMPUTE # Explicitly sets the platform for SSR/Next.js
+      # BuildSpec is omitted to allow Amplify to use its default, platform-aware build process.
+      Tags:
+        - Key: Project
+          Value: adocs
+        - Key: Environment
+          Value: Development
+        - Key: Component
+          Value: Frontend
+        - Key: ManagedBy
+          Value: CloudFormation
 
   AmplifyDevBranch:
     Type: 'AWS::Amplify::Branch'
@@ -68,10 +52,6 @@ Outputs:
   AmplifyAppId:
     Description: The ID of the Amplify App.
     Value: !GetAtt AmplifyApp.AppId
-    Export:
-      Name: !Sub '${AWS::StackName}-AppId'
   DefaultDomain:
     Description: The default domain for the deployed 'dev' branch.
     Value: !Sub 'https://dev.${AmplifyApp.DefaultDomain}'
-    Export:
-      Name: !Sub '${AWS::StackName}-DefaultDomain'
