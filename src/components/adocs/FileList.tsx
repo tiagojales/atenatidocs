@@ -66,7 +66,7 @@ export function FileList({
   const handleMergeClick = async () => {
     if (files.length < 2) {
       toast({
-        title: "Faltam arquivos",
+        title: "Arquivos insuficientes",
         description: "Adicione pelo menos dois arquivos para juntar.",
         variant: "destructive",
       });
@@ -75,7 +75,7 @@ export function FileList({
 
     try {
       setIsPreparing(true);
-      toast({ title: "Preparando uploads..." });
+      toast({ title: "Etapa 1 de 3: Preparando para o envio..." });
       const fileMetadatas = files.map((f) => ({ name: f.name, type: f.type }));
       const uploadTargets = await getUploadUrls(fileMetadatas);
 
@@ -83,14 +83,14 @@ export function FileList({
       setIsUploading(true);
       setUploadProgress({});
       toast({
-        title: "Enviando arquivos...",
-        description: "Por favor, aguarde enquanto seus arquivos são enviados.",
+        title: `Etapa 2 de 3: Enviando ${files.length} arquivos...`,
+        description: "Por favor, aguarde o término do processo.",
       });
 
       const uploadPromises = files.map(file => {
         const target = uploadTargets.find(t => t.originalFileName === file.name);
         if (!target) {
-            throw new Error(`Não foi encontrada uma URL de upload para ${file.name}.`);
+            throw new Error(`Não foi encontrada uma URL de envio para ${file.name}.`);
         }
 
         return new Promise<string>((resolve, reject) => {
@@ -115,15 +115,13 @@ export function FileList({
             xhr.onload = () => {
               if (xhr.status >= 200 && xhr.status < 300) {
                 setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
-                // --- CORREÇÃO APLICADA AQUI ---
-                // Usando o caminho aninhado para a chave, que é o esperado pelo TypeScript.
                 resolve(target.post_details.fields.key);
               } else {
-                reject(new Error(`Falha no upload de ${file.name}: ${xhr.statusText}`));
+                reject(new Error(`Falha no envio de ${file.name}: ${xhr.statusText}`));
               }
             };
 
-            xhr.onerror = () => reject(new Error("Erro de rede durante o upload."));
+            xhr.onerror = () => reject(new Error("Erro de rede durante o envio."));
 
             xhr.send(formData);
         });
@@ -133,10 +131,10 @@ export function FileList({
 
       setIsUploading(false);
       setIsMerging(true);
-      toast({ title: "Upload concluído!", description: "Juntando seus PDFs..." });
+      toast({ title: "Etapa 3 de 3: Juntando seus PDFs...", description: "Esta é a etapa final." });
       
       const result = await triggerPdfMerge(uploadedKeysInOrder);
-      toast({ title: "PDFs juntados!", description: "Seu download começará em breve..." });
+      toast({ title: "Operação concluída!", description: "Seu arquivo foi gerado e está pronto para download." });
       
       onMergeSuccess(result.downloadUrl);
 
@@ -164,6 +162,7 @@ export function FileList({
        return `Enviando... ${Math.round(averageProgress)}%`;
     }
     if (isMerging) return "Juntando...";
+    const fileCount = files.length;
     return `Juntar`;
   }
 
@@ -175,11 +174,11 @@ export function FileList({
         <div className="space-y-1">
           <CardTitle className="text-xl" >Seus Arquivos</CardTitle>
           <CardDescription className="font-small text-sm text-foreground">
-            Arraste para reordenar. Os arquivos serão juntados de cima para baixo.
+            Arraste para reordenar. Os arquivos serão combinados de cima para baixo.
           </CardDescription>
         </div>
         <Button variant="ghost" size="sm" onClick={onClearAll} className="text-muted-foreground gap-2" disabled={isLoading}>
-          Limpar <XCircle className="h-4 w-4" />
+          Limpar<XCircle className="h-4 w-4" />
         </Button>
       </CardHeader>
       <CardContent>
@@ -244,7 +243,7 @@ export function FileList({
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
             <CircleArrowRight className="h-5 w-5" />
-          )}
+          )}          
         </Button>
       </CardFooter>
     </Card>
