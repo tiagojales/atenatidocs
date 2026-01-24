@@ -13,6 +13,7 @@ Parameters:
     Default: dev
     AllowedValues:
       - dev
+      - stg
       - prod
 
 # ===================================================================
@@ -22,14 +23,14 @@ Resources:
   ArtifactsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # CORREÇÃO CRÍTICA: O nome do bucket S3 DEVE ser globalmente único.
-      # Adicionar o ID da conta e a Região garante a unicidade.
       BucketName: !Sub "adocs-artifacts-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
       Tags:
         - Key: Project
           Value: adocs
@@ -39,8 +40,6 @@ Resources:
           Value: Artifacts
         - Key: ManagedBy
           Value: CloudFormation
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Delete
 
 # ===================================================================
 # Outputs
@@ -51,4 +50,5 @@ Outputs:
     Value: !Ref ArtifactsBucket
     Export:
       # A exportação permite que outras stacks (como a do backend) importem este valor.
-      Name: !Sub "adocs-artifacts-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
+      # NOME SIMPLIFICADO para consistência com os scripts de deploy.
+      Name: !Sub "adocs-artifacts-${EnvironmentName}"

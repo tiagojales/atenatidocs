@@ -12,9 +12,10 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Helper Functions ---
 function print_usage() {
-  echo "Usage: ./deploy.sh -e <environment> -r <repository_url> [-d <domain>] [-z <hosted_zone_name>]"
+  echo "Usage: ./deploy.sh -e <environment> -r <repository_url> -a <aws_region> [-d <domain>] [-z <hosted_zone_name>]"
   echo "  -e <environment>      : The environment to deploy (dev, stg, prod)."
   echo "  -r <repository_url>   : The full HTTPS URL of the frontend's GitHub repository."
+  echo "  -a <aws_region>       : The AWS region to deploy the stacks in (e.g., sa-east-1)."
   echo "  -d <domain>           : The root domain name (e.g., atenadocs.com). Required for stg and prod."
   echo "  -z <hosted_zone_name> : The Route 53 Hosted Zone Name (e.g., atenadocs.com.). Required for stg and prod to enable auto DNS creation."
   echo "  -h                    : Display this help message."
@@ -31,24 +32,31 @@ ENVIRONMENT=""
 DOMAIN=""
 REPO_URL=""
 HOSTED_ZONE_NAME=""
+AWS_REGION=""
 
-while getopts "e:d:r:z:h" opt; do
+while getopts "e:d:r:z:a:h" opt; do
   case ${opt} in
     e) ENVIRONMENT=$OPTARG ;; 
     d) DOMAIN=$OPTARG ;;      
     r) REPO_URL=$OPTARG ;;    
     z) HOSTED_ZONE_NAME=$OPTARG ;; 
+    a) AWS_REGION=$OPTARG ;; 
     h) print_usage; exit 0 ;;   
     \?) print_usage; exit 1 ;; 
   esac
 done
 
 # --- Input Validation ---
-if [[ -z "$ENVIRONMENT" ]] || [[ -z "$REPO_URL" ]]; then
-  print_color "91" "Error: Environment (-e) and Repository URL (-r) are mandatory." # Red
+if [[ -z "$ENVIRONMENT" ]] || [[ -z "$REPO_URL" ]] || [[ -z "$AWS_REGION" ]]; then
+  print_color "91" "Error: Environment (-e), Repository URL (-r), and AWS Region (-a) are mandatory." # Red
   print_usage
   exit 1
 fi
+
+# CORREÇÃO: Exportar a variável de ambiente da Região da AWS.
+# A CLI da AWS usará automaticamente esta região para todos os comandos subsequentes.
+export AWS_REGION
+print_color "96" "AWS Region set to: $AWS_REGION" # Cyan
 
 if [[ "$ENVIRONMENT" == "stg" || "$ENVIRONMENT" == "prod" ]]; then
   if [[ -z "$DOMAIN" ]] || [[ -z "$HOSTED_ZONE_NAME" ]]; then
@@ -80,7 +88,6 @@ if [[ "$ENVIRONMENT" == "stg" || "$ENVIRONMENT" == "prod" ]]; then
     fi
     print_color "32" "✅ Hosted Zone found: ${HOSTED_ZONE_ID}" # Green
 fi
-
 
 # 1. Deploy Artifacts Stack
 STACK_NAME_ARTIFACTS="adocs-artifacts-stack-${ENVIRONMENT}"
@@ -131,10 +138,11 @@ print_color "32" "✅ Backend stack deployed." # Green
 STACK_NAME_FRONTEND="adocs-frontend-stack-${ENVIRONMENT}"
 print_color "93" "\n[Step 4/4] Deploying frontend application stack (AWS Amplify)..." # Yellow
 
-# Get the API URL from the backend stack's outputs
 API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME_BACKEND" --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
+
 if [[ -z "$API_URL" ]]; then
-    print_color "91" "Error: Could not retrieve the API URL from the backend stack outputs."
+    API_URL_EXPORT_NAME="${STACK_NAME_BACKEND}-ApiUrl"
+    print_color "91" "Error: Could not retrieve the API URL from the backend stack outputs. Expected export name: ${API_URL_EXPORT_NAME}"
     exit 1
 fi
 

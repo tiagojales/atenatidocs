@@ -129,17 +129,19 @@ def merge_pdfs(event):
     merger = PdfWriter()
     
     try:
+        # Passo 1: Juntar todos os PDFs em memória
         for key in file_keys:
             s3_object = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=key)
             pdf_stream = BytesIO(s3_object['Body'].read())
             reader = PdfReader(pdf_stream)
-            for page in reader.pages:
-                merger.add_page(page)
+            merger.append(reader) # Método mais robusto para juntar PDFs
 
+        # Passo 2: Escrever o resultado mesclado para um stream em memória
         merged_stream = BytesIO()
         merger.write(merged_stream)
         merged_stream.seek(0)
 
+        # Passo 3: Fazer o upload do PDF mesclado para o S3
         merged_key = f"{S3_MERGED_PREFIX}{uuid.uuid4()}.pdf"
         
         s3_client.put_object(
@@ -149,12 +151,20 @@ def merge_pdfs(event):
             ContentType='application/pdf'
         )
 
+        # Passo 4: Gerar a URL de download pré-assinada
         download_url = s3_client.generate_presigned_url(
             'get_object',
             Params={'Bucket': S3_BUCKET_NAME, 'Key': merged_key},
             ExpiresIn=3600
         )
 
+        # Passo 5: Excluir os arquivos originais APENAS APÓS o sucesso
+        s3_client.delete_objects(
+            Bucket=S3_BUCKET_NAME,
+            Delete={'Objects': [{'Key': key} for key in file_keys]}
+        )
+
+        # Passo 6: Retornar a resposta de sucesso
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
@@ -162,12 +172,9 @@ def merge_pdfs(event):
         }
 
     finally:
+        # O bloco 'finally' garante que o escritor de PDF seja fechado para liberar recursos,
+        # independentemente de ter ocorrido um erro ou não.
         merger.close()
-        if file_keys:
-            s3_client.delete_objects(
-                Bucket=S3_BUCKET_NAME,
-                Delete={'Objects': [{'Key': key} for key in file_keys]}
-            )
 
 # =============================================================================
 # Handler Principal

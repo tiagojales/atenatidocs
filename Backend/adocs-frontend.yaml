@@ -114,4 +114,4 @@ Outputs:
               - !Ref FrontendDomain
         - !GetAtt AmplifyApp.DefaultDomain
     Export:
-      Name: !Sub '${AWS::StackName}-FinalAppURL'
+      Name: !Sub 'FinalAppURL'

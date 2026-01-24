@@ -24,10 +24,10 @@ Conditions:
 
 Resources:
   # --- S3 Bucket for PDF Data ---
-  DataBucket:
+  PdfStorageBucket:
     Type: "AWS::S3::Bucket"
     Properties:
-      BucketName: !Sub "adocs-data-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "adocs-pdf-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
       AccessControl: Private
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -56,7 +56,7 @@ Resources:
   LambdaExecutionRole:
     Type: "AWS::IAM::Role"
     Properties:
-      RoleName: !Sub "adocs-lambda-role-${EnvironmentName}"
+      RoleName: !Sub "adocs-pdf-merge-lambda-role-${EnvironmentName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -67,7 +67,7 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Policies:
-        - PolicyName: !Sub "adocs-lambda-policy-${EnvironmentName}"
+        - PolicyName: !Sub "adocs-pdf-merge-lambda-policy-${EnvironmentName}"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -81,33 +81,34 @@ Resources:
                 Action:
                   - "s3:PutObject"
                   - "s3:GetObject"
+                  - "s3:DeleteObject"
                   - "s3:ListBucket"
                 Resource:
-                  - !GetAtt DataBucket.Arn
-                  - !Sub "${DataBucket.Arn}/*"
+                  - !GetAtt PdfStorageBucket.Arn
+                  - !Sub "${PdfStorageBucket.Arn}/*"
 
   # --- Lambda Layer for Dependencies ---
   LambdaDependenciesLayer:
     Type: "AWS::Lambda::LayerVersion"
     Properties:
-      LayerName: !Sub "adocs-lambda-layer-${EnvironmentName}"
+      LayerName: !Sub "adocs-pypdf-layer-${EnvironmentName}"
       Description: "Python dependencies for the AtenaDocs Lambda function."
       Content:
         S3Bucket: !Ref ArtifactsBucket
         S3Key: "layer.zip"
       CompatibleRuntimes:
-        - "python3.11"
+        - "python3.14"
 
   # --- Lambda Function ---
   ApiFunction:
     Type: "AWS::Lambda::Function"
     Properties:
       FunctionName: !Sub "adocs-api-function-${EnvironmentName}"
-      Handler: "lambda_function.handler"
-      Runtime: "python3.11"
+      Handler: "lambda_function.lambda_handler"
+      Runtime: "python3.14"
       Role: !GetAtt LambdaExecutionRole.Arn
-      Timeout: 30
-      MemorySize: 256
+      Timeout: 150
+      MemorySize: 512
       Code:
         S3Bucket: !Ref ArtifactsBucket
         S3Key: "lambda_function.zip"
@@ -115,14 +116,15 @@ Resources:
         - !Ref LambdaDependenciesLayer
       Environment:
         Variables:
-          DATA_BUCKET_NAME: !Ref DataBucket
-          ALLOWED_ORIGIN: !If [HasFrontendDomain, !Ref FrontendDomain, '*']
+          S3_BUCKET_NAME: !Ref PdfStorageBucket
+          AWS_REGION_NAME: !Ref AWS::Region
+          ENVIRONMENT_NAME: !Ref EnvironmentName
 
   # --- API Gateway ---
   ApiGateway:
     Type: "AWS::ApiGateway::RestApi"
     Properties:
-      Name: !Sub "adocs-api-${EnvironmentName}"
+      Name: !Sub "adocs-pdf-merge-api-${EnvironmentName}"
       Description: "API for AtenaDocs PDF services."
       EndpointConfiguration:
         Types:
@@ -182,4 +184,4 @@ Outputs:
     Description: "The URL of the deployed API Gateway stage."
     Value: !Sub "https:///${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}"
     Export:
-      Name: !Sub "${AWS::StackName}-ApiUrl"
+      Name: !Sub "${AWS::StackName}-ApiUrl" # CORREÇÃO FINAL: Alterado de . para - para cumprir as regras do CloudFormation.
